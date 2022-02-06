@@ -41,6 +41,7 @@ import org.apache.spark.scheduler._
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.util.DateTimeUtils
+import org.apache.spark.sql.catalyst.util.RebaseDateTime.RebaseSpec
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader}
 import org.apache.spark.sql.execution.datasources.{DataSourceUtils, RecordReaderIterator}
@@ -104,7 +105,7 @@ class HdfsColumnarPartitionReaderFactory(pushdown: Pushdown,
     val filePath = new Path(new URI(partition.name))
     lazy val footerFileMetaData =
       ParquetFileReader.readFooter(conf, filePath, SKIP_ROW_GROUPS).getFileMetaData
-    val datetimeRebaseMode = DataSourceUtils.datetimeRebaseMode(
+    val datetimeRebaseSpec = DataSourceUtils.datetimeRebaseSpec(
       footerFileMetaData.getKeyValueMetaData.get,
       datetimeRebaseModeInRead)
     val pushed = if (!(options.get("path").contains("ndphdfs") &&
@@ -114,7 +115,7 @@ class HdfsColumnarPartitionReaderFactory(pushdown: Pushdown,
       // logger.info("parquet file schema: " + parquetSchema.toString)
       val parquetFilters = new ParquetFilters(parquetSchema, pushDownDate, pushDownTimestamp,
         pushDownDecimal, pushDownStringStartWith, pushDownInFilterThreshold, isCaseSensitive,
-        datetimeRebaseMode)
+        datetimeRebaseSpec)
       pushdown.filters
         // Collects all converted Parquet filter predicates. Notice that not all predicates can be
         // converted (`ParquetFilters.createFilter` returns an `Option`). That's why a `flatMap`
@@ -144,13 +145,13 @@ class HdfsColumnarPartitionReaderFactory(pushdown: Pushdown,
     if (pushed.isDefined) {
       ParquetInputFormat.setFilterPredicate(hadoopAttemptContext.getConfiguration, pushed.get)
     }
-    val int96RebaseMode = DataSourceUtils.int96RebaseMode(
+    val int96RebaseMode = DataSourceUtils.int96RebaseSpec(
       footerFileMetaData.getKeyValueMetaData.get,
       int96RebaseModeInRead)
     val reader = createParquetVectorizedReader(hadoopAttemptContext,
                                                pushed,
                                                convertTz,
-                                               datetimeRebaseMode,
+                                               datetimeRebaseSpec,
                                                int96RebaseMode)
     if (options.get("path").contains("ndphdfs") &&
         pushdown.isPushdownNeeded) {
@@ -178,13 +179,15 @@ class HdfsColumnarPartitionReaderFactory(pushdown: Pushdown,
       hadoopAttemptContext: TaskAttemptContextImpl,
       pushed: Option[FilterPredicate],
       convertTz: Option[ZoneId],
-      datetimeRebaseMode: LegacyBehaviorPolicy.Value,
-      int96RebaseMode: LegacyBehaviorPolicy.Value): VectorizedParquetRecordReader = {
+      datetimeRebaseSpec: RebaseSpec,
+      int96RebaseSpec: RebaseSpec): VectorizedParquetRecordReader = {
     val taskContext = Option(TaskContext.get())
     val vectorizedReader = new VectorizedParquetRecordReader(
       convertTz.orNull,
-      datetimeRebaseMode.toString,
-      int96RebaseMode.toString,
+      datetimeRebaseSpec.mode.toString,
+      datetimeRebaseSpec.timeZone,
+      int96RebaseSpec.mode.toString,
+      int96RebaseSpec.timeZone,
       enableOffHeapColumnVector && taskContext.isDefined,
       batchSize)
     val iter = new RecordReaderIterator(vectorizedReader)
