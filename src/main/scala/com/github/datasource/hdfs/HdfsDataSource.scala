@@ -259,18 +259,18 @@ class HdfsPartitionReader(pushdown: Pushdown,
     }
   }
 
-  // var index = 0
+  var index = 0
   def next: Boolean = {
     rowIterator.hasNext
   }
   def get: InternalRow = {
     val row = rowIterator.next
-    /* if (((index % 500000) == 0) ||
+    if (((index % 500000) == 0) ||
         (!next)) {
       logger.info(s"get: partition: ${partition.index} ${partition.offset}" +
                   s" ${partition.length} ${partition.name} index: ${index}")
     }
-    index = index + 1 */
+    index = index + 1
     row
   }
 
